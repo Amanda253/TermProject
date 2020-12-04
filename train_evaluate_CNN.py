@@ -92,7 +92,6 @@ def test(model, device, test_loader, criterion):
             data, target = sample
             data, target = data.to(device), target.to(device)
 
-
             # Predict for data by doing forward pass
             output = model(data)
 
@@ -118,7 +117,34 @@ def test(model, device, test_loader, criterion):
         test_loss, correct, len(test_loader.dataset), accuracy))
     
     return test_loss, accuracy
-    
+
+def k_hot_catIDs(batch):
+    # print('length: {}'.format(len(batch)))
+    out = []
+    for data in batch:
+        img, segs = data
+        cats = [seg['category_id'] for seg in segs]
+        out.append((img, cats))
+    return out
+
+def coco_subset_dataloader(coco_dataset, catNms, batch_size):
+    # get the category ids of interest
+    catIds = coco_dataset.coco.getCatIds(catNms=catNms)
+    # get the corresponding image ids containing the categories 
+    imgIds = coco_dataset.coco.getImgIds(catIds=catIds)
+    # convert the coco image ids to numpy array
+    ids = np.array(coco_dataset.ids)
+    # locate indicies of corresponding images ids as 1D array
+    idxs = np.array(list(map(lambda x: np.where(ids == x), imgIds))).flatten()
+    # select subset of intrest from the full coco dataset with these indicies   
+    subset = torch.utils.data.Subset(coco_dataset, idxs)
+    # Prepare a data loader for this subset dataset
+    subset_loader = DataLoader(subset, 
+                               batch_size=batch_size,
+                               shuffle=True,
+                               num_workers=0,
+                               collate_fn=k_hot_catIDs)
+    return subset_loader
 
 def run_main(FLAGS):
     # Check if cuda is available
@@ -134,18 +160,18 @@ def run_main(FLAGS):
     model = ConvNet(FLAGS.mode, debug).to(device)
     print('mode {}'.format(FLAGS.mode))
     print(model)
-    if debug: print(model)
 
-    # Use Cross Entropy as the loss function since we want to choose 1-of-N classes which are inter-related. 
-    #Cross Entropy will map the networks predictions to a probabilities in range [0,1] 
-    criterion = nn.CrossEntropyLoss()
+    # Use Binary Cross Entropy as the loss function 
+    # since we want to allow multiple lables for each input. 
+    # Cross Entropy will map the networks predictions to a probabilities in range [0,1] 
+    criterion = nn.BCELoss()
     
     # Define optimizer function.
-    # Use stochastic gradient descent optimizer with a learning rate passed by cmd args
+    # Use stochastic gradient descent optimizer with momentum
+    # and a decaying a learning rate 
     learning_rate = FLAGS.learning_rate
-#     optimizer = optim.SGD(model.parameters(), learning_rate, momentum=0.9, weight_decay=5e-4)
-    optimizer = optimizer = optim.SGD(model.parameters(), learning_rate)
-    
+    optimizer = optim.SGD(model.parameters(), learning_rate, momentum=0.9, weight_decay=5e-4)
+
     # Create transformations to apply to each data sample 
     # Can specify variations such as image flip, color flip, random crop, ...
     transform=transforms.Compose([
@@ -153,17 +179,35 @@ def run_main(FLAGS):
         transforms.Normalize((0.1307,), (0.3081,))
         ])
     
+    root = 'F:/Research/datasets/MSCOCO2014'
+    train_root = 'train2014'
+    train_path = '{}/train2014'.format(root, train_root)
+    train_annFile = '{}/annotations/instances_{}.json'.format(root, train_root)
+    test_root = 'train2014'
+    test_path = '{}/train2014'.format(root, test_root)
+    test_annFile = '{}/annotations/instances_{}.json'.format(root, test_root)
+
     # Load datasets for training and testing
     # Inbuilt datasets available in torchvision (check documentation online)
-    dataset1 = datasets.CIFAR10('./data/', train=True, download=True,
-                       transform=transform)
-    dataset2 = datasets.CIFAR10('./data/', train=False,
-                       transform=transform)
-    train_loader = DataLoader(dataset1, batch_size = FLAGS.batch_size, 
-                                shuffle=True, num_workers=4)
-    test_loader = DataLoader(dataset2, batch_size = FLAGS.batch_size, 
-                                shuffle=False, num_workers=4)
+    train_dataset = datasets.CocoDetection(root = train_root,
+                                      annFile = train_annFile,
+                                      train=True, 
+                                      transform=transform)
+    test_dataset = datasets.CocoDetection(root = test_path,
+                                      annFile = test_annFile,
+                                      train=False,
+                                      transform=transform)
     
+    # Create dataloaders for cull coco dataset
+    train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=False, 
+                            num_workers=0, collate_fn=select_catIDs)
+    test_dataloader = DataLoader(test_dataset, batch_size=4, shuffle=False, 
+                            num_workers=0, collate_fn=select_catIDs)
+    
+    # Create dataloaders for coco dataset of select categories 
+    catNms=['person','bench','handbag']
+    train_subset_loader = coco_subset_dataloader(train_dataset, catNms, FLAGS.batch_size)
+    test_subset_loader = coco_subset_dataloader(test_dataset, catNms, FLAGS.batch_size)
     
     # Define tracked network performance metrics
     best_accuracy = 0.0
@@ -173,7 +217,7 @@ def run_main(FLAGS):
     test_accuracies = np.zeros(FLAGS.num_epochs)
     
     # Define the tensorboard writer to track netowrk training
-    writer = SummaryWriter('./runs/CIFAR10/Dropout/{}'.format(FLAGS.name))
+    writer = SummaryWriter('./runs/COCO2014/Dropout/{}'.format(FLAGS.name))
     
     # Run training for n_epochs specified in config 
     for epoch in range(1, FLAGS.num_epochs + 1):
@@ -192,7 +236,6 @@ def run_main(FLAGS):
         if test_accuracy > best_accuracy:
             best_accuracy = test_accuracy
     
-      
         # Log the epoch metrics in tensorboard
         writer.add_scalar('Loss/train', train_loss, epoch)
         writer.add_scalar('Accuracy/train', train_accuracy, epoch)
