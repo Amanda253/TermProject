@@ -56,17 +56,22 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size):
         optimizer.step()
         
         # Get predicted index by selecting maximum log-probability
-        pred = output.argmax(dim=1, keepdim=True)
-        max_val, preds = torch.max(output, dim=1)
+#         pred = output.argmax(dim=1, keepdim=True)
+#         max_val, preds = torch.max(output, dim=1)
+
+        # TODO: Figure out how to measure accuray for multi-labal predictions in this batch
+        num_wrong = torch.abs(output - target).sum().item()
+        correct = 92 - num_wrong
+        
         # Count correct predictions overall 
         # Reshape the target tensor to match the shape of the preds, then
         # Get element-wise equality between the preds and the targets for this batch,
         # finally sum the equalities and convert to a std python float
-        correct += pred.eq(target.view_as(pred)).sum().item()
+#         correct += pred.eq(target.view_as(pred)).sum().item()
         
     train_loss = float(np.mean(losses))
-    train_acc = 100. * correct / ((batch_idx+1) * batch_size)
-    
+#     train_acc = 100. * correct / ((batch_idx+1) * batch_size)
+    train_acc = 1
     print('Train set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         float(np.mean(losses)), correct, (batch_idx+1) * batch_size, train_acc))
           
@@ -102,17 +107,17 @@ def test(model, device, test_loader, criterion):
             losses.append(loss.item())
 
             # Get predicted index by selecting maximum log-probability
-            pred = output.argmax(dim=1, keepdim=True)
-            max_val, preds = torch.max(output, dim=1)
+#             pred = output.argmax(dim=1, keepdim=True)
+#             max_val, preds = torch.max(output, dim=1)
             # Count correct predictions overall 
             # Reshape the target tensor to match the shape of the preds, then
             # Get element-wise equality between the preds and the targets for this batch,
             # finally sum the equalities and convert to a std python float
-            correct += pred.eq(target.view_as(pred)).sum().item()
+#             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss = float(np.mean(losses))
-    accuracy = 100. * correct / len(test_loader.dataset)
-
+#     accuracy = 100. * correct / len(test_loader.dataset)
+    accuracy = 1
     print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset), accuracy))
     
@@ -120,12 +125,17 @@ def test(model, device, test_loader, criterion):
 
 def k_hot_catIDs(batch):
     # print('length: {}'.format(len(batch)))
-    out = []
-    for data in batch:
-        img, segs = data
-        cats = [seg['category_id'] for seg in segs]
-        out.append((img, cats))
-    return out
+    # There are 80 classes total in COCO, but catIds go up to 91
+    imgs = []
+    kHot = torch.zeros(len(batch), 92)
+    for i, (img, segs) in enumerate(batch):
+        # cats = [seg['category_id'] for seg in segs]
+        imgs.append(img)
+        for seg in segs:
+            kHot[i, seg['category_id']]=1
+    
+    imgs = torch.stack(imgs)      
+    return imgs, kHot
 
 def coco_subset_dataloader(coco_dataset, catNms, batch_size):
     # get the category ids of interest
@@ -175,6 +185,7 @@ def run_main(FLAGS):
     # Create transformations to apply to each data sample 
     # Can specify variations such as image flip, color flip, random crop, ...
     transform=transforms.Compose([
+        transforms.Resize((640,640)),
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
         ])
@@ -189,20 +200,18 @@ def run_main(FLAGS):
 
     # Load datasets for training and testing
     # Inbuilt datasets available in torchvision (check documentation online)
-    train_dataset = datasets.CocoDetection(root = train_root,
+    train_dataset = datasets.CocoDetection(root = train_path,
                                       annFile = train_annFile,
-                                      train=True, 
                                       transform=transform)
     test_dataset = datasets.CocoDetection(root = test_path,
                                       annFile = test_annFile,
-                                      train=False,
                                       transform=transform)
     
     # Create dataloaders for cull coco dataset
-    train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=False, 
-                            num_workers=0, collate_fn=select_catIDs)
-    test_dataloader = DataLoader(test_dataset, batch_size=4, shuffle=False, 
-                            num_workers=0, collate_fn=select_catIDs)
+    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False, 
+                            num_workers=0, collate_fn=k_hot_catIDs)
+    test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, 
+                            num_workers=0, collate_fn=k_hot_catIDs)
     
     # Create dataloaders for coco dataset of select categories 
     catNms=['person','bench','handbag']
@@ -258,14 +267,14 @@ if __name__ == '__main__':
                         type=int, default=1,
                         help='Select mode between 1-5.')
     parser.add_argument('--learning_rate',
-                        type=float, default=0.0001,
+                        type=float, default=0.01,
                         help='Initial learning rate.')
     parser.add_argument('--num_epochs',
                         type=int,
-                        default=30,
+                        default=10,
                         help='Number of epochs to run trainer.')
     parser.add_argument('--batch_size',
-                        type=int, default=16,
+                        type=int, default=4,
                         help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir',
                         type=str,
@@ -284,5 +293,3 @@ if __name__ == '__main__':
     FLAGS, unparsed = parser.parse_known_args()
     
     run_main(FLAGS)
-    
-    
