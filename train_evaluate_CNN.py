@@ -10,6 +10,7 @@ from torchvision import datasets, transforms
 from torch.utils.tensorboard import SummaryWriter
 from ConvNet import ConvNet
 import numpy as np 
+import itertools
 
 def train(model, device, train_loader, optimizer, criterion, epoch, batch_size):
     '''
@@ -33,6 +34,9 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size):
     # Iterate over entire training samples (1 epoch)
     for batch_idx, batch_sample in enumerate(train_loader):
         data, target = batch_sample
+        
+        if batch_idx % 500 == 0: 
+            print("Train Batch: {}".format(batch_idx))
         
         # Push data/label to correct device
         data, target = data.to(device), target.to(device)
@@ -96,7 +100,10 @@ def test(model, device, test_loader, criterion):
         for batch_idx, sample in enumerate(test_loader):
             data, target = sample
             data, target = data.to(device), target.to(device)
-
+            
+            if batch_idx % 500 == 0: 
+                print("Train Batch: {}".format(batch_idx))
+            
             # Predict for data by doing forward pass
             output = model(data)
 
@@ -137,24 +144,29 @@ def k_hot_catIDs(batch):
     imgs = torch.stack(imgs)      
     return imgs, kHot
 
-def coco_subset_dataloader(coco_dataset, catNms, batch_size):
+def list_flatten(lists):
+    return [item for sublist in lists for item in sublist]
+
+def coco_subset(coco_dataset, catNms):
     # get the category ids of interest
     catIds = coco_dataset.coco.getCatIds(catNms=catNms)
     # get the corresponding image ids containing the categories 
-    imgIds = coco_dataset.coco.getImgIds(catIds=catIds)
+    imgIds = []
+    for L in range(0, len(catIds)+1):
+        for subset in itertools.combinations(catIds, L):
+            if len(subset) > 0:
+                print(subset)
+                imgIds.append(coco_dataset.coco.getImgIds(catIds=list(subset)))
+            
+    imgIds = np.unique(np.array(list_flatten(imgIds)))
+    
     # convert the coco image ids to numpy array
     ids = np.array(coco_dataset.ids)
     # locate indicies of corresponding images ids as 1D array
     idxs = np.array(list(map(lambda x: np.where(ids == x), imgIds))).flatten()
     # select subset of intrest from the full coco dataset with these indicies   
     subset = torch.utils.data.Subset(coco_dataset, idxs)
-    # Prepare a data loader for this subset dataset
-    subset_loader = DataLoader(subset, 
-                               batch_size=batch_size,
-                               shuffle=True,
-                               num_workers=0,
-                               collate_fn=k_hot_catIDs)
-    return subset_loader
+    return subset
 
 def run_main(FLAGS):
     # Check if cuda is available
@@ -190,12 +202,12 @@ def run_main(FLAGS):
         transforms.Normalize((0.1307,), (0.3081,))
         ])
     
-    root = 'F:/Research/datasets/MSCOCO2014'
-    train_root = 'train2014'
-    train_path = '{}/train2014'.format(root, train_root)
+    root = 'F:/Research/datasets/MSCOCO2017'
+    train_root = 'train2017'
+    train_path = '{}/{}'.format(root, train_root)
     train_annFile = '{}/annotations/instances_{}.json'.format(root, train_root)
-    test_root = 'train2014'
-    test_path = '{}/train2014'.format(root, test_root)
+    test_root = 'val2017'
+    test_path = '{}/{}'.format(root, test_root)
     test_annFile = '{}/annotations/instances_{}.json'.format(root, test_root)
 
     # Load datasets for training and testing
@@ -213,10 +225,22 @@ def run_main(FLAGS):
     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, 
                             num_workers=0, collate_fn=k_hot_catIDs)
     
-    # Create dataloaders for coco dataset of select categories 
-    catNms=['person','bench','handbag']
-    train_subset_loader = coco_subset_dataloader(train_dataset, catNms, FLAGS.batch_size)
-    test_subset_loader = coco_subset_dataloader(test_dataset, catNms, FLAGS.batch_size)
+    # define categories of interest
+    catNms=['bird','bench','handbag']
+    # Create subsets of coco dataset using selected categories      
+    train_subset = coco_subset(train_dataset, catNms)
+    test_subset = coco_subset(test_dataset, catNms)
+    # Prepare data loaders for these subsets    
+    train_subset_loader = DataLoader(train_subset, 
+                                     batch_size=FLAGS.batch_size,
+                                     shuffle=True,
+                                     num_workers=0,
+                                     collate_fn=k_hot_catIDs)
+    test_subset_loader = DataLoader(test_subset, 
+                                     batch_size=FLAGS.batch_size,
+                                     shuffle=True,
+                                     num_workers=0,
+                                     collate_fn=k_hot_catIDs)
     
     # Define tracked network performance metrics
     best_accuracy = 0.0
@@ -226,14 +250,14 @@ def run_main(FLAGS):
     test_accuracies = np.zeros(FLAGS.num_epochs)
     
     # Define the tensorboard writer to track netowrk training
-    writer = SummaryWriter('./runs/COCO2014/Dropout/{}'.format(FLAGS.name))
+    writer = SummaryWriter('./runs/COCO2017/{}'.format(FLAGS.name))
     
     # Run training for n_epochs specified in config 
     for epoch in range(1, FLAGS.num_epochs + 1):
         print("Epoch {}".format(epoch))
-        train_loss, train_accuracy = train(model, device, train_loader,
+        train_loss, train_accuracy = train(model, device, train_subset_loader,
                                             optimizer, criterion, epoch, FLAGS.batch_size)
-        test_loss, test_accuracy = test(model, device, test_loader, criterion)
+        test_loss, test_accuracy = test(model, device, test_subset_loader, criterion)
         
         # Store epoch metrics in memory
         i = epoch - 1
@@ -274,7 +298,7 @@ if __name__ == '__main__':
                         default=10,
                         help='Number of epochs to run trainer.')
     parser.add_argument('--batch_size',
-                        type=int, default=4,
+                        type=int, default=10,
                         help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir',
                         type=str,
