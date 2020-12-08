@@ -46,17 +46,20 @@ class ConvNet(nn.Module):
                                    padding=1)
             
             # Add dropout to randomly make some pixels 0 with the probability p
-            # Use dropout2d since it is a spatial-dropout designed for 4-D tensors such as images or feature maps from convolution layers. The standard dropout will not be able to effectively regularize the network.
+            # Use dropout2d since it is a spatial-dropout designed for 4-D tensors
+            # such as images or feature maps from convolution layers. The standard 
+            # dropout will not be able to effectively regularize the network.
             self.dropout = nn.Dropout2d(p=0.5)
             
             # COCO images have possible 91 category ids to predict
             # Define fcNN which performs the classification
-            self.fc1 = nn.Linear(128 * 4 * 4, 1024)
-            self.fc2 = nn.Linear(1024, num_cats)
+            self.fc1 = nn.Linear(128 * 4 * 4, 1028)
+            self.fc2 = nn.Linear(1028, num_cats)
             self.forward = self.model_1
+            
         elif mode == 2:           
             # Conv1 
-            self.conv1_1 = nn.Conv2d(3, 64, 4, 1, 1)
+            self.conv1_1 = nn.Conv2d(3, 64, 3, 1, 1)
             self.conv1_2 = nn.Conv2d(64, 64, 3, 1, 1)
             
             # Conv2 
@@ -64,17 +67,17 @@ class ConvNet(nn.Module):
             self.conv2_2 = nn.Conv2d(128, 128, 3, 1, 1)
             
             # Conv3 
-            self.conv3_1 = nn.Conv2D(128, 256, 3, 1, 1)
-            self.conv3_2 = nn.Conv2D(256, 256, 3, 1, 1)
-            self.conv3_3 = nn.Conv2D(256, 256, 3, 1, 1)
+            self.conv3_1 = nn.Conv2d(128, 256, 3, 1, 1)
+            self.conv3_2 = nn.Conv2d(256, 256, 3, 1, 1)
+            self.conv3_3 = nn.Conv2d(256, 256, 3, 1, 1)
             
             # Conv4 
-            self.conv4_1 = nn.Conv2D(256, 512, 3, 1 , 1)
-            self.conv4_2 = nn.Conv2D(512, 512, 3, 1 , 1)
-            self.conv4_3 = nn.Conv2D(512, 512, 3, 1 , 1)
+            self.conv4_1 = nn.Conv2d(256, 512, 3, 1 , 1)
+            self.conv4_2 = nn.Conv2d(512, 512, 3, 1 , 1)
+            self.conv4_3 = nn.Conv2d(512, 512, 3, 1 , 1)
             
             # Conv fc5
-            self.fc5 = nn.Conv2d(512, 4096, 7)
+            self.fc5 = nn.Conv2d(512, 4096, 8)
             self.dropout5 = nn.Dropout2d(p=0.5)
             
             # Conv fc6
@@ -86,37 +89,6 @@ class ConvNet(nn.Module):
             self.forward = self.model_2
             
         elif mode == 3:
-            self.conv1 = nn.Conv2d(in_channels=3,
-                                   out_channels=64,
-                                   kernel_size=3,
-                                   stride=1,
-                                   padding=1)
-
-            self.conv2 = nn.Conv2d(in_channels=64,
-                                   out_channels=32,
-                                   kernel_size=3,
-                                   stride=1,
-                                   padding=1)
-            
-            self.conv3 = nn.Conv2d(in_channels=32,
-                                   out_channels=16,
-                                   kernel_size=3,
-                                   stride=1,
-                                   padding=1)
-
-            self.conv4 = nn.Conv2d(in_channels=16,
-                                   out_channels=8,
-                                   kernel_size=3,
-                                   stride=1,
-                                   padding=1)
-            
-            self.conv5 = nn.Conv2d(in_channels=8,
-                                   out_channels=3,
-                                   kernel_size=3,
-                                   stride=1,
-                                   padding=1)
-            
-            self.dropout = nn.Dropout2d(p=0.5)
             self.forward = self.model_3
         else: 
             print("Invalid mode ", mode, "selected. Select between 1-5")
@@ -175,62 +147,67 @@ class ConvNet(nn.Module):
             
         # Conv1
         Y = F.relu(self.conv1_1(Y))
-        if self.debug: print("conv1_1:\t\t", X.shape)
+        if self.debug: print("conv1_1:\t\t", Y.shape)
         
         Y = F.relu(self.conv1_2(Y))
-        if self.debug: print("conv1_2:\t\t", X.shape)
+        if self.debug: print("conv1_2:\t\t", Y.shape)
             
         Y = F.max_pool2d(Y, 2)
-        if self.debug: print("max_pool1:\t", X.shape)
+        if self.debug: print("max_pool1:\t", Y.shape)
         
         # Conv2
         Y = F.relu(self.conv2_1(Y))
-        if self.debug: print("conv2_1:\t\t", X.shape)
+        if self.debug: print("conv2_1:\t\t", Y.shape)
         
         Y = F.relu(self.conv2_2(Y))
-        if self.debug: print("conv2_2:\t\t", X.shape)
+        if self.debug: print("conv2_2:\t\t", Y.shape)
             
         Y = F.max_pool2d(Y, 2)
-        if self.debug: print("max_pool2:\t", X.shape)
+        if self.debug: print("max_pool2:\t", Y.shape)
             
         # Conv3
         Y = F.relu(self.conv3_1(Y))
-        if self.debug: print("conv3_1:\t\t", X.shape)
+        if self.debug: print("conv3_1:\t\t", Y.shape)
         
         Y = F.relu(self.conv3_2(Y))
-        if self.debug: print("conv3_2:\t\t", X.shape)
+        if self.debug: print("conv3_2:\t\t", Y.shape)
 
         Y = F.relu(self.conv3_3(Y))
-        if self.debug: print("conv3_2:\t\t", X.shape)
+        if self.debug: print("conv3_2:\t\t", Y.shape)
             
         Y = F.max_pool2d(Y, 2)
-        if self.debug: print("max_pool3:\t", X.shape)
+        if self.debug: print("max_pool3:\t", Y.shape)
         
         # Conv4
         Y = F.relu(self.conv4_1(Y))
-        if self.debug: print("conv4_1:\t\t", X.shape)
+        if self.debug: print("conv4_1:\t\t", Y.shape)
         
         Y = F.relu(self.conv4_2(Y))
-        if self.debug: print("conv4_2:\t\t", X.shape)
+        if self.debug: print("conv4_2:\t\t", Y.shape)
 
         Y = F.relu(self.conv4_3(Y))
-        if self.debug: print("conv4_2:\t\t", X.shape)
+        if self.debug: print("conv4_2:\t\t", Y.shape)
             
         Y = F.max_pool2d(Y, 2)
-        if self.debug: print("max_pool4:\t", X.shape)  
+        if self.debug: print("max_pool4:\t", Y.shape)  
         
+        # fc5
+        Y = F.relu(self.fc5(Y))
+        if self.debug: print("fc5:\t", Y.shape)
+        Y = self.dropout5(Y)
         
-        X = self.dropout(X)
-        if self.debug: print("dropout:\t", X.shape)
+        # fc6
+        Y = F.relu(self.fc6(Y))
+        if self.debug: print("fc6:\t", Y.shape)
+        Y = self.dropout6(Y)
+
+        # fc7
+        Y = torch.sigmoid(self.fc7(Y))
+        if self.debug: print("fc7:\t", Y.shape)
         
-        X = torch.flatten(X, start_dim=1)
-        if self.debug: print("flatten:\t", X.shape)
-            
-        X = F.relu(self.fc1(X))
-        if self.debug: print("fc1:\t\t", X.shape)
-        
-        output = torch.sigmoid(self.fc2(X))
-        if self.debug: print("fc2:\t\t", X.shape)
+        # Remove unnecessary dimensions and change shape to [10,3]
+        output = torch.squeeze(Y)
+        if self.debug: print("output:\t", output.shape)
             
         return output
         

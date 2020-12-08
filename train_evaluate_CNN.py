@@ -68,11 +68,11 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, 
         batch_accuracy = num_equal / torch.numel(target)
         accuracy += batch_accuracy
         
-        progbar(batch_idx, len(train_loader), 10, batch_accuracy)
+        if not model.debug: progbar(batch_idx, len(train_loader), 10, batch_accuracy)
             
     train_loss = float(np.mean(losses))
     train_acc = 100. * correct / ((batch_idx+1) * batch_size * num_cats)
-    print('Train set\t Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+    print('\nTrain set\t Average loss: {:.4f}\t Accuracy: {}/{} ({:.0f}%)'.format(
         float(np.mean(losses)), correct, (batch_idx+1) * batch_size * num_cats, train_acc))
           
     return train_loss, train_acc
@@ -118,7 +118,7 @@ def test(model, device, test_loader, criterion, num_cats):
 
     test_loss = float(np.mean(losses))
     test_acc = (100. * correct) / (len(test_loader.dataset) * num_cats)
-    print('\nTest set\t Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
+    print('Test set\t Average loss: {:.4f}\t Accuracy: {}/{} ({:.0f}%)'.format(
         test_loss, correct, len(test_loader.dataset) * num_cats, test_acc))
     
     return test_loss, test_acc
@@ -203,12 +203,8 @@ def run_main(FLAGS):
                                       annFile = test_annFile,
                                       transform=transform)
 
-    # Create dataloaders for cull coco dataset
-#     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False, 
-#                             num_workers=0, collate_fn=k_hot_catIDs)
-#     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, 
-#                             num_workers=0, collate_fn=k_hot_catIDs)
     # define categories of interest
+#     catNms=['bicycle','bench','handbag','car','book','motorcycle']
     catNms=['bird','bench','handbag']
     # get the category ids of interest
     catIds = train_dataset.coco.getCatIds(catNms=catNms)
@@ -246,8 +242,10 @@ def run_main(FLAGS):
     # Use stochastic gradient descent optimizer with momentum
     # and a decaying a learning rate 
     learning_rate = FLAGS.learning_rate
+    momentum=0.9
+    weight_decay=1e-4
     optimizer = optim.SGD(model.parameters(), learning_rate, 
-                          momentum=0.9, weight_decay=1e-4)
+                          momentum=momentum, weight_decay=weight_decay)
     
     # Define tracked network performance metrics
     best_accuracy = 0.0
@@ -257,10 +255,11 @@ def run_main(FLAGS):
     test_accuracies = np.zeros(FLAGS.num_epochs)
     
     # Define name of this model for bookkeeping
-    name = 'model{}_lr{}_epochs{}_{}'.format(FLAGS.mode,
+    name = 'model{}_lr{}_epochs{}_batch{}_{}'.format(FLAGS.mode,
                                             FLAGS.learning_rate,
                                             FLAGS.num_epochs,
-                                            FLAGS.name)
+                                            FLAGS.batch_size,
+                                            "_".join(catNms))
     # Define the tensorboard writer to track netowrk training
     writer = SummaryWriter('./runs/COCO2017/{}'.format(name))
     # Define the output filename for the training and evaluation traces
@@ -313,8 +312,7 @@ def run_main(FLAGS):
     
     
 if __name__ == '__main__':
-    # Set parameters for Sparse Autoencoder
-    parser = argparse.ArgumentParser('CNN Exercise.')
+    parser = argparse.ArgumentParser('Multi-label CNN Classifier')
     parser.add_argument('--mode',
                         type=int, default=1,
                         help='Select mode between 1-5.')
