@@ -11,8 +11,9 @@ from torch.utils.tensorboard import SummaryWriter
 from ConvNet import ConvNet
 import numpy as np 
 import itertools
+import time
 
-def train(model, device, train_loader, optimizer, criterion, epoch, batch_size):
+def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, num_cats):
     '''
     Trains the model for an epoch and optimizes it.
     model: The model to train. Should already be in correct device.
@@ -30,13 +31,11 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size):
     # Empty list to store losses 
     losses = []
     correct = 0
+    accuracy = 0
     
     # Iterate over entire training samples (1 epoch)
     for batch_idx, batch_sample in enumerate(train_loader):
         data, target = batch_sample
-        
-        if batch_idx % 500 == 0: 
-            print("Train Batch: {}".format(batch_idx))
         
         # Push data/label to correct device
         data, target = data.to(device), target.to(device)
@@ -58,30 +57,27 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size):
         
         # Optimize model parameters based on learning rate and gradient 
         optimizer.step()
-        
-        # Get predicted index by selecting maximum log-probability
-#         pred = output.argmax(dim=1, keepdim=True)
-#         max_val, preds = torch.max(output, dim=1)
 
-        # TODO: Figure out how to measure accuray for multi-labal predictions in this batch
-        num_wrong = torch.abs(output - target).sum().item()
-        correct = 92 - num_wrong
-        
+        # Get predicted class by rounding 
+        pred = output.round()
         # Count correct predictions overall 
-        # Reshape the target tensor to match the shape of the preds, then
         # Get element-wise equality between the preds and the targets for this batch,
-        # finally sum the equalities and convert to a std python float
-#         correct += pred.eq(target.view_as(pred)).sum().item()
+        # finally sum the equalities and convert to a python float
+        num_equal = pred.eq(target).sum().item()
+        correct += num_equal
+        batch_accuracy = num_equal / torch.numel(target)
+        accuracy += batch_accuracy
         
+        progbar(batch_idx, len(train_loader), 10, batch_accuracy)
+            
     train_loss = float(np.mean(losses))
-#     train_acc = 100. * correct / ((batch_idx+1) * batch_size)
-    train_acc = 1
-    print('Train set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        float(np.mean(losses)), correct, (batch_idx+1) * batch_size, train_acc))
+    train_acc = 100. * correct / ((batch_idx+1) * batch_size * num_cats)
+    print('Train set\t Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        float(np.mean(losses)), correct, (batch_idx+1) * batch_size * num_cats, train_acc))
           
     return train_loss, train_acc
 
-def test(model, device, test_loader, criterion):
+def test(model, device, test_loader, criterion, num_cats):
     '''
     Tests the model.
     model: The model to train. Should already be in correct device.
@@ -94,16 +90,14 @@ def test(model, device, test_loader, criterion):
     
     losses = []
     correct = 0
+    accuracy = 0
     
     # Set torch.no_grad() to disable gradient computation and backpropagation
     with torch.no_grad():
         for batch_idx, sample in enumerate(test_loader):
             data, target = sample
             data, target = data.to(device), target.to(device)
-            
-            if batch_idx % 500 == 0: 
-                print("Train Batch: {}".format(batch_idx))
-            
+                
             # Predict for data by doing forward pass
             output = model(data)
 
@@ -113,49 +107,31 @@ def test(model, device, test_loader, criterion):
             # Append loss to overall test loss
             losses.append(loss.item())
 
-            # Get predicted index by selecting maximum log-probability
-#             pred = output.argmax(dim=1, keepdim=True)
-#             max_val, preds = torch.max(output, dim=1)
+            # Get predicted class by rounding 
+            pred = output.round()
             # Count correct predictions overall 
-            # Reshape the target tensor to match the shape of the preds, then
             # Get element-wise equality between the preds and the targets for this batch,
             # finally sum the equalities and convert to a std python float
-#             correct += pred.eq(target.view_as(pred)).sum().item()
+            num_equal = pred.eq(target).sum().item()
+            correct += num_equal
+            accuracy += num_equal / torch.numel(target)
 
     test_loss = float(np.mean(losses))
-#     accuracy = 100. * correct / len(test_loader.dataset)
-    accuracy = 1
-    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset), accuracy))
+    test_acc = (100. * correct) / (len(test_loader.dataset) * num_cats)
+    print('\nTest set\t Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
+        test_loss, correct, len(test_loader.dataset) * num_cats, test_acc))
     
-    return test_loss, accuracy
-
-def k_hot_catIDs(batch):
-    # print('length: {}'.format(len(batch)))
-    # There are 80 classes total in COCO, but catIds go up to 91
-    imgs = []
-    kHot = torch.zeros(len(batch), 92)
-    for i, (img, segs) in enumerate(batch):
-        # cats = [seg['category_id'] for seg in segs]
-        imgs.append(img)
-        for seg in segs:
-            kHot[i, seg['category_id']]=1
-    
-    imgs = torch.stack(imgs)      
-    return imgs, kHot
+    return test_loss, test_acc
 
 def list_flatten(lists):
     return [item for sublist in lists for item in sublist]
 
-def coco_subset(coco_dataset, catNms):
-    # get the category ids of interest
-    catIds = coco_dataset.coco.getCatIds(catNms=catNms)
+def coco_subset(coco_dataset, catIds):
     # get the corresponding image ids containing the categories 
     imgIds = []
     for L in range(0, len(catIds)+1):
         for subset in itertools.combinations(catIds, L):
             if len(subset) > 0:
-                print(subset)
                 imgIds.append(coco_dataset.coco.getImgIds(catIds=list(subset)))
             
     imgIds = np.unique(np.array(list_flatten(imgIds)))
@@ -168,6 +144,28 @@ def coco_subset(coco_dataset, catNms):
     subset = torch.utils.data.Subset(coco_dataset, idxs)
     return subset
 
+def k_hot_catIDs(batch, catIds):
+    # There are 80 classes total in COCO, but catIds go up to 91
+    imgs = []
+    target = torch.zeros(len(batch), len(catIds))
+    for i, (img, segs) in enumerate(batch):
+        imgs.append(img)
+        img_catIds = [seg['category_id'] for seg in segs]
+        for k, catId in enumerate(catIds):
+            target[i,k] = int(catId in img_catIds)
+    
+    imgs = torch.stack(imgs)      
+    return imgs, target
+
+def progbar(curr, total, full_progbar, accuracy):
+    frac = curr/total
+    filled_progbar = round(frac*full_progbar)
+    print('\r', 
+          '#'*filled_progbar + '-'*(full_progbar-filled_progbar), 
+          '[{:>7.2%}]'.format(frac), 
+          'Accuracy: [{:>7.2%}]'.format(accuracy), 
+          end='')
+
 def run_main(FLAGS):
     # Check if cuda is available
     use_cuda = torch.cuda.is_available()
@@ -178,26 +176,10 @@ def run_main(FLAGS):
     
     debug = FLAGS.debug
 
-    # Initialize the model and send to device 
-    model = ConvNet(FLAGS.mode, debug).to(device)
-    print('mode {}'.format(FLAGS.mode))
-    print(model)
-
-    # Use Binary Cross Entropy as the loss function 
-    # since we want to allow multiple lables for each input. 
-    # Cross Entropy will map the networks predictions to a probabilities in range [0,1] 
-    criterion = nn.BCELoss()
-    
-    # Define optimizer function.
-    # Use stochastic gradient descent optimizer with momentum
-    # and a decaying a learning rate 
-    learning_rate = FLAGS.learning_rate
-    optimizer = optim.SGD(model.parameters(), learning_rate, momentum=0.9, weight_decay=5e-4)
-
     # Create transformations to apply to each data sample 
     # Can specify variations such as image flip, color flip, random crop, ...
     transform=transforms.Compose([
-        transforms.Resize((640,640)),
+        transforms.Resize((128,128)),
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
         ])
@@ -212,35 +194,60 @@ def run_main(FLAGS):
 
     # Load datasets for training and testing
     # Inbuilt datasets available in torchvision (check documentation online)
+    print('Loading training data...')
     train_dataset = datasets.CocoDetection(root = train_path,
                                       annFile = train_annFile,
                                       transform=transform)
+    print('Loading validataion data...')
     test_dataset = datasets.CocoDetection(root = test_path,
                                       annFile = test_annFile,
                                       transform=transform)
-    
+
     # Create dataloaders for cull coco dataset
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False, 
-                            num_workers=0, collate_fn=k_hot_catIDs)
-    test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, 
-                            num_workers=0, collate_fn=k_hot_catIDs)
-    
+#     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=False, 
+#                             num_workers=0, collate_fn=k_hot_catIDs)
+#     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, 
+#                             num_workers=0, collate_fn=k_hot_catIDs)
     # define categories of interest
     catNms=['bird','bench','handbag']
+    # get the category ids of interest
+    catIds = train_dataset.coco.getCatIds(catNms=catNms)
+    train_catIds = train_dataset.coco.getCatIds(catNms=catNms)
+    test_catIds = test_dataset.coco.getCatIds(catNms=catNms)
     # Create subsets of coco dataset using selected categories      
-    train_subset = coco_subset(train_dataset, catNms)
-    test_subset = coco_subset(test_dataset, catNms)
-    # Prepare data loaders for these subsets    
+    train_subset = coco_subset(train_dataset, train_catIds)
+    test_subset = coco_subset(test_dataset, test_catIds)
+    # Prepare data loaders for these subsets
+    collate_fn = lambda b: k_hot_catIDs(b, catIds)
+    train_collate_fn = lambda b: k_hot_catIDs(b, train_catIds)
+    test_collate_fn = lambda b: k_hot_catIDs(b, test_catIds)
     train_subset_loader = DataLoader(train_subset, 
                                      batch_size=FLAGS.batch_size,
                                      shuffle=True,
                                      num_workers=0,
-                                     collate_fn=k_hot_catIDs)
+                                     collate_fn=collate_fn)
     test_subset_loader = DataLoader(test_subset, 
                                      batch_size=FLAGS.batch_size,
                                      shuffle=True,
                                      num_workers=0,
-                                     collate_fn=k_hot_catIDs)
+                                     collate_fn=collate_fn)
+    
+    # Initialize the model and send to device 
+    model = ConvNet(FLAGS.mode, debug, len(catIds)).to(device)
+    print('mode {}'.format(FLAGS.mode))
+    print(model)
+
+    # Use Binary Cross Entropy as the loss function 
+    # since we want to allow multiple lables for each input. 
+    # Cross Entropy will map the networks predictions to a probabilities in range [0,1] 
+    criterion = nn.BCELoss()
+    
+    # Define optimizer function.
+    # Use stochastic gradient descent optimizer with momentum
+    # and a decaying a learning rate 
+    learning_rate = FLAGS.learning_rate
+    optimizer = optim.SGD(model.parameters(), learning_rate, 
+                          momentum=0.9, weight_decay=1e-4)
     
     # Define tracked network performance metrics
     best_accuracy = 0.0
@@ -249,15 +256,27 @@ def run_main(FLAGS):
     test_losses = np.zeros(FLAGS.num_epochs)
     test_accuracies = np.zeros(FLAGS.num_epochs)
     
+    # Define name of this model for bookkeeping
+    name = 'model{}_lr{}_epochs{}_{}'.format(FLAGS.mode,
+                                            FLAGS.learning_rate,
+                                            FLAGS.num_epochs,
+                                            FLAGS.name)
     # Define the tensorboard writer to track netowrk training
-    writer = SummaryWriter('./runs/COCO2017/{}'.format(FLAGS.name))
-    
+    writer = SummaryWriter('./runs/COCO2017/{}'.format(name))
+    # Define the output filename for the training and evaluation traces
+    filename = "./output/COCO2017_{}.dat".format(name)    
+    num_cats = len(catNms)
     # Run training for n_epochs specified in config 
     for epoch in range(1, FLAGS.num_epochs + 1):
         print("Epoch {}".format(epoch))
-        train_loss, train_accuracy = train(model, device, train_subset_loader,
-                                            optimizer, criterion, epoch, FLAGS.batch_size)
-        test_loss, test_accuracy = test(model, device, test_subset_loader, criterion)
+        train_loss, train_accuracy = train(model, device, 
+                                           train_subset_loader, 
+                                           optimizer, criterion, 
+                                           epoch, FLAGS.batch_size, 
+                                           num_cats)
+        test_loss, test_accuracy = test(model, device, 
+                                        test_subset_loader, 
+                                        criterion, num_cats)
         
         # Store epoch metrics in memory
         i = epoch - 1
@@ -278,9 +297,18 @@ def run_main(FLAGS):
     # Flush all writer logs and close resource
     writer.flush()
     writer.close()
+    
+    with open(filename, 'w') as f:
+        f.write('Train Loss,Train Accuracy,Test Loss, Test Accuracy')
+        for epoch in range(FLAGS.num_epochs):
+            # Write epoch metrics to disk
+            f.write('{},{},{},{}\n'.format(train_losses[epoch],
+                                         train_accuracies[epoch],
+                                         test_losses[epoch],
+                                         test_accuracies[epoch]))
 
     # Print final results to console
-    print("accuracy is {:2.2f}".format(best_accuracy))
+    print("best accuracy was {:2.2f}".format(best_accuracy))
     print("Training and evaluation finished")
     
     
@@ -295,7 +323,7 @@ if __name__ == '__main__':
                         help='Initial learning rate.')
     parser.add_argument('--num_epochs',
                         type=int,
-                        default=10,
+                        default=15,
                         help='Number of epochs to run trainer.')
     parser.add_argument('--batch_size',
                         type=int, default=10,
