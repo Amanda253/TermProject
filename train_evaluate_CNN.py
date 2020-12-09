@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import itertools
 import time
+from sklearn import metrics
 
 def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, num_cats):
     '''
@@ -33,6 +34,7 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, 
     losses = []
     correct = 0
     accuracy = 0
+    percision = 0
     
     # Iterate over entire training samples (1 epoch)
     for batch_idx, batch_sample in enumerate(train_loader):
@@ -70,6 +72,8 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, 
         correct += num_equal
         batch_accuracy = num_equal / torch.numel(target)
         accuracy += batch_accuracy
+        
+#         print(metrics.classification_report(target.cpu(), pred.cpu()))
         
         if not model.debug: progbar(batch_idx, len(train_loader), 10, batch_accuracy)
             
@@ -145,7 +149,7 @@ def equalize_dis(catnms, idList, coco_dataset):
             
     list_lengths = [len(x) for x in dis_list]
     plt.bar(range(len(catnms)), height=list_lengths)
-    plt.xlabel("Number of classes")
+    plt.xlabel("Category Index")
     plt.ylabel("Number of images")
     plt.show()
     
@@ -153,11 +157,11 @@ def equalize_dis(catnms, idList, coco_dataset):
 
     for l in dis_list:
         new_list.append(l[slice(minSet)])
-        print(len(l))
+#         print(len(l))
         
     list_lengths = [len(x) for x in new_list]
     plt.bar(range(len(catnms)), height=list_lengths)
-    plt.xlabel("Number of classes")
+    plt.xlabel("Category Index")
     plt.ylabel("Number of images")
     plt.show()
         
@@ -297,8 +301,16 @@ def run_main(FLAGS):
                                       transform=transform)
 
     # define categories of interest
-    catNms=['bicycle','bench','handbag','car','book','motorcycle']
-#     catNms=['bird','bench','handbag']
+    catNm_test=[['bench'],
+                ['bench','handbag'],
+                ['bench','handbag','book'],
+                ['bench','handbag','book','car'],
+                ['bench','handbag','book','car','bicycle'],
+                ['bench','handbag','book','car','bicycle','motorcycle'],
+                ['bench','handbag','book','car','dog','skateboard','cup']]
+    
+    # select categoires to test with
+    catNms=catNm_test[FLAGS.num_cats-1]
     
     # get the category ids of interest
     catIds = train_dataset.coco.getCatIds(catNms=catNms)
@@ -327,8 +339,7 @@ def run_main(FLAGS):
     
     # Initialize the model and send to device 
     model = ConvNet(FLAGS.mode, debug, len(catIds)).to(device)
-    print('mode {}'.format(FLAGS.mode))
-    print(model)
+    print('mode {}\n'.format(FLAGS.mode), model)
 
     # Use Binary Cross Entropy as the loss function 
     # since we want to allow multiple lables for each input. 
@@ -351,12 +362,13 @@ def run_main(FLAGS):
     test_losses = np.zeros(FLAGS.num_epochs)
     test_accuracies = np.zeros(FLAGS.num_epochs)
     
-    # Define name of this model for bookkeeping
-    name = 'model{}_lr{}_epochs{}_batch{}_{}_{}_name{}'.format(
+    # Define name of this model for logging
+    name = 'model{}_lr{}_epochs{}_batch{}_numCats{}_{}_{}{}'.format(
         FLAGS.mode,
         FLAGS.learning_rate,
         FLAGS.num_epochs,
         FLAGS.batch_size,
+        FLAGS.num_cats,
         "-".join(catNms),
         "balanced" if FLAGS.balance_dataset else "unbalanced",
         FLAGS.name)
@@ -366,6 +378,7 @@ def run_main(FLAGS):
     # Define the output filename for the training and evaluation traces
     filename = "./output/COCO2017_{}.dat".format(name)    
     num_cats = len(catNms)
+    
     # Run training for n_epochs specified in config 
     for epoch in range(1, FLAGS.num_epochs + 1):
         print("Epoch {}".format(epoch))
@@ -416,7 +429,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Multi-label CNN Classifier')
     parser.add_argument('--mode',
                         type=int, default=1,
-                        help='Select mode between 1-5.')
+                        help='Select mode between 1-3.')
     parser.add_argument('--learning_rate',
                         type=float, default=0.01,
                         help='Initial learning rate.')
@@ -443,6 +456,10 @@ if __name__ == '__main__':
                         type=bool,
                         default=False,
                         help='Balance training dataset.')
+    parser.add_argument('--num_cats',
+                        type=int,
+                        default=5,
+                        help='Number of categories used to evaluate the model. 1-7')
     
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()

@@ -9,8 +9,7 @@ class ConvNet(nn.Module):
         self.debug = debug
 
         # This will select the forward pass function based on mode for the ConvNet.
-        # Based on the question, you have 5 modes available for step 1 to 5.
-        # During creation of each ConvNet model, assign one of the valid mode.
+        # 3 modes are available for evaluation.
         # This will fix the forward function (and the network graph) for training/testing
         if mode == 1:
             # Uses square kernels of size 3x3 with stride 1
@@ -51,8 +50,10 @@ class ConvNet(nn.Module):
             # dropout will not be able to effectively regularize the network.
             self.dropout = nn.Dropout2d(p=0.5)
             
-            # COCO images have possible 91 category ids to predict
             # Define fcNN which performs the classification
+            # COCO images have possible 91 category ids to predict
+            # Since we are not using all 92 categories, 
+            # set the size of the last layer to be the number of categories.
             self.fc1 = nn.Linear(128 * 4 * 4, 1028)
             self.fc2 = nn.Linear(1028, num_cats)
             self.forward = self.model_1
@@ -90,7 +91,7 @@ class ConvNet(nn.Module):
             self.forward = self.model_2
             
         elif mode == 3:
-            # Conv layers
+            # Encoder Conv layers
             self.conv1 = nn.Conv2d(3, 8, 3, 1, 1)
             self.conv2 = nn.Conv2d(8, 16, 3, 1, 1)
             self.conv3 = nn.Conv2d(16, 32, 3, 1, 1)
@@ -101,6 +102,7 @@ class ConvNet(nn.Module):
             
             # Fully connected conv2d layers
             self.fc6 = nn.Conv2d(128, 128, 4)
+            # Prediction layer
             self.fc7 = nn.Conv2d(128, num_cats, 1)
             self.forward = self.model_3
         else: 
@@ -219,6 +221,7 @@ class ConvNet(nn.Module):
         if self.debug: print("fc7:\t", Y.shape)
         
         # Remove unnecessary dimensions and change shape to [10,3]
+        # to make predictions
         output = torch.squeeze(Y)
         if self.debug: print("output:\t", output.shape)
             
@@ -267,7 +270,7 @@ class ConvNet(nn.Module):
         if self.debug: print("fc7:\t\t", X.shape)
             
         # Remove unnecessary dimensions and change shape to match target tensor
-        # [10, num_cats, 1, 1] --> [10,num_cats]
+        # [10, num_cats, 1, 1] --> [10,num_cats] to make predicitons
         output = torch.squeeze(X)
         if self.debug: print("output:\t", output.shape)
             
