@@ -10,6 +10,7 @@ from torchvision import datasets, transforms
 from torch.utils.tensorboard import SummaryWriter
 from ConvNet import ConvNet
 import numpy as np 
+import matplotlib.pyplot as plt
 import itertools
 import time
 
@@ -45,6 +46,8 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, 
         
         # Do forward pass for current set of data
         output = model(data)
+        
+#         if model.debug: print('target: {}'.format(target.size()))
         
         # Compute loss based on criterion
         loss = criterion(output, target)
@@ -100,7 +103,9 @@ def test(model, device, test_loader, criterion, num_cats):
                 
             # Predict for data by doing forward pass
             output = model(data)
-
+            
+#             print('target: {}'.format(target.size()))
+            
             # Compute loss based on same criterion as training
             loss = criterion(output, target)
 
@@ -126,7 +131,91 @@ def test(model, device, test_loader, criterion, num_cats):
 def list_flatten(lists):
     return [item for sublist in lists for item in sublist]
 
-def coco_subset(coco_dataset, catIds):
+def equalize_dis(catnms, idList, coco_dataset):
+    dis_list = []
+    
+    # Minimum
+    minSet = len(coco_dataset.coco.getImgIds(imgIds=idList, catIds=catnms[0]))
+    
+    for i in catnms:
+        temp = coco_dataset.coco.getImgIds(imgIds=idList, catIds=i)
+        dis_list.append(temp)
+        if len(temp) < minSet:
+            minSet = len(temp)
+            
+    list_lengths = [len(x) for x in dis_list]
+    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.xlabel("Number of classes")
+    plt.ylabel("Number of images")
+    plt.show()
+    
+    new_list = []
+
+    for l in dis_list:
+        new_list.append(l[slice(minSet)])
+        print(len(l))
+        
+    list_lengths = [len(x) for x in new_list]
+    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.xlabel("Number of classes")
+    plt.ylabel("Number of images")
+    plt.show()
+        
+    single_list = list(itertools.chain(*new_list))
+    
+    return single_list 
+
+def removeList(l1, l2):
+    return [i for i in l1 if i not in l2]
+
+def equalize_dis_no_overlap(catnms, idList, coco_dataset):
+    dis_list = []
+    
+    # get list of imgIds that correspond to the given categories
+    for i in catnms:
+        temp = coco_dataset.coco.getImgIds(imgIds=idList, catIds=i)
+        dis_list.append(temp)
+    
+    # sort list of lists from least to greatest
+    dis_list.sort(key=len)
+    
+    list_lengths = [len(x) for x in dis_list]
+#     print("1st length of list")
+#     print(list_lengths)
+    
+    # a list for values to remove and a list for the new values
+    remove_list = []
+    new_list = []
+    
+    min_length = len(dis_list[0])
+#     print(min_length)
+    
+    for li in dis_list:
+        r_list = [i for i in remove_list if i not in dis_list[li]]
+        new_list.append(r_list)
+        remove_list.extend(r_list)
+        
+        if len(r_list) < min_length:
+            min_length = len(r_list)
+            
+    list_lengths = [len(x) for x in new_list]
+#     print("2nd length of list")
+#     print(list_lengths)
+    
+    final_list = []
+
+    for l in final_list:
+        final_list.append(l[slice(min_length)])
+        
+    list_lengths = [len(x) for x in final_list]
+#     print("3rd length of list")
+#     print(list_lengths)
+        
+    single_list = list(itertools.chain(*final_list))
+    
+    return single_list 
+
+def coco_subset(coco_dataset, catIds, balance_dataset=False):
     # get the corresponding image ids containing the categories 
     imgIds = []
     for L in range(0, len(catIds)+1):
@@ -135,6 +224,10 @@ def coco_subset(coco_dataset, catIds):
                 imgIds.append(coco_dataset.coco.getImgIds(catIds=list(subset)))
             
     imgIds = np.unique(np.array(list_flatten(imgIds)))
+    
+    # Truncate dataset to ensure a uniform category distribution 
+    if balance_dataset: 
+        imgIds = equalize_dis(catIds, imgIds, coco_dataset)
     
     # convert the coco image ids to numpy array
     ids = np.array(coco_dataset.ids)
@@ -204,19 +297,23 @@ def run_main(FLAGS):
                                       transform=transform)
 
     # define categories of interest
-#     catNms=['bicycle','bench','handbag','car','book','motorcycle']
-    catNms=['bird','bench','handbag']
+    catNms=['bicycle','bench','handbag','car','book','motorcycle']
+#     catNms=['bird','bench','handbag']
+    
     # get the category ids of interest
     catIds = train_dataset.coco.getCatIds(catNms=catNms)
     train_catIds = train_dataset.coco.getCatIds(catNms=catNms)
     test_catIds = test_dataset.coco.getCatIds(catNms=catNms)
+    
     # Create subsets of coco dataset using selected categories      
-    train_subset = coco_subset(train_dataset, train_catIds)
+    train_subset = coco_subset(train_dataset, train_catIds, FLAGS.balance_dataset)
     test_subset = coco_subset(test_dataset, test_catIds)
+    
     # Prepare data loaders for these subsets
     collate_fn = lambda b: k_hot_catIDs(b, catIds)
     train_collate_fn = lambda b: k_hot_catIDs(b, train_catIds)
     test_collate_fn = lambda b: k_hot_catIDs(b, test_catIds)
+    
     train_subset_loader = DataLoader(train_subset, 
                                      batch_size=FLAGS.batch_size,
                                      shuffle=True,
@@ -255,11 +352,15 @@ def run_main(FLAGS):
     test_accuracies = np.zeros(FLAGS.num_epochs)
     
     # Define name of this model for bookkeeping
-    name = 'model{}_lr{}_epochs{}_batch{}_{}'.format(FLAGS.mode,
-                                            FLAGS.learning_rate,
-                                            FLAGS.num_epochs,
-                                            FLAGS.batch_size,
-                                            "_".join(catNms))
+    name = 'model{}_lr{}_epochs{}_batch{}_{}_{}_name{}'.format(
+        FLAGS.mode,
+        FLAGS.learning_rate,
+        FLAGS.num_epochs,
+        FLAGS.batch_size,
+        "-".join(catNms),
+        "balanced" if FLAGS.balance_dataset else "unbalanced",
+        FLAGS.name)
+    
     # Define the tensorboard writer to track netowrk training
     writer = SummaryWriter('./runs/COCO2017/{}'.format(name))
     # Define the output filename for the training and evaluation traces
@@ -336,8 +437,12 @@ if __name__ == '__main__':
                         help='Enable debug mode.')
     parser.add_argument('--name',
                         type=str,
-                        default='model',
+                        default='',
                         help='Set model name')
+    parser.add_argument('--balance_dataset',
+                        type=bool,
+                        default=False,
+                        help='Balance training dataset.')
     
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()
