@@ -271,17 +271,26 @@ def list_flatten(lists):
     return [item for sublist in lists for item in sublist]
 
 def equalize_dis(catnms, idList, coco_dataset):
+    
+    '''
+    function that takes in coco image ids and returns
+    an id list containg balanced image classes which
+    may contain overlaping categories
+    '''
+    
     dis_list = []
     
-    # Minimum
+    # smallest list of categories
     minSet = len(coco_dataset.coco.getImgIds(imgIds=idList, catIds=catnms[0]))
     
+    # seperates the id list into seperate categories
     for i in catnms:
         temp = coco_dataset.coco.getImgIds(imgIds=idList, catIds=i)
         dis_list.append(temp)
         if len(temp) < minSet:
             minSet = len(temp)
             
+    # displays the bar graph of the unbalanced 
     list_lengths = [len(x) for x in dis_list]
     plt.bar(range(len(catnms)), height=list_lengths)
     plt.xlabel("Number of classes")
@@ -290,16 +299,19 @@ def equalize_dis(catnms, idList, coco_dataset):
     
     new_list = []
 
+    # reduces the lists to the size of the smallest list
     for l in dis_list:
         new_list.append(l[slice(minSet)])
         print(len(l))
-        
+    
+    # displays the balanced list
     list_lengths = [len(x) for x in new_list]
     plt.bar(range(len(catnms)), height=list_lengths)
     plt.xlabel("Number of classes")
     plt.ylabel("Number of images")
     plt.show()
-        
+    
+    # combining all the elements into a single list    
     single_list = list(itertools.chain(*new_list))
     
     return single_list 
@@ -308,6 +320,13 @@ def removeList(l1, l2):
     return [i for i in l1 if i not in l2]
 
 def equalize_dis_no_overlap(catnms, idList, coco_dataset):
+    
+    '''
+    function that takes in coco image ids and returns
+    an id list containg balanced image classes with
+    no overlaping categories
+    '''
+    
     dis_list = []
     
     # get list of imgIds that correspond to the given categories
@@ -317,40 +336,49 @@ def equalize_dis_no_overlap(catnms, idList, coco_dataset):
     
     # sort list of lists from least to greatest
     dis_list.sort(key=len)
-    
+
+    # Displaying the class distribution before
     list_lengths = [len(x) for x in dis_list]
-    print("1st length of list")
-    print(list_lengths)
+    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.xlabel("Number of classes")
+    plt.ylabel("Number of images")
+    plt.show()
     
     # a list for values to remove and a list for the new values
     remove_list = []
     new_list = []
     
+    # The minimum length it will be reduced to
     min_length = len(dis_list[0])
-    print(min_length)
     
+    # Getting rid of overlaping categories in the
+    # category list
     for li in dis_list:
-        r_list = [i for i in remove_list if i not in dis_list[li]]
+        
+        r_list = removeList(li, remove_list)
+        
         new_list.append(r_list)
         remove_list.extend(r_list)
         
         if len(r_list) < min_length:
             min_length = len(r_list)
             
-    list_lengths = [len(x) for x in new_list]
-    print("2nd length of list")
-    print(list_lengths)
-    
     final_list = []
 
-    for l in final_list:
+    # turning the category lists into a single list
+    for l in new_list:
         final_list.append(l[slice(min_length)])
         
+    # Displaying the balanced class distribution
     list_lengths = [len(x) for x in final_list]
-    print("3rd length of list")
-    print(list_lengths)
-        
+    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.xlabel("Number of classes")
+    plt.ylabel("Number of images")
+    plt.show()
+     
+    # combining all the elements into a single list 
     single_list = list(itertools.chain(*final_list))
+    
     
     return single_list 
 
@@ -365,7 +393,7 @@ def coco_subset(coco_dataset, catIds):
             
     imgIds = np.unique(np.array(list_flatten(imgIds)))
     
-    imgIds = equalize_dis(catIds, imgIds, coco_dataset)
+    imgIds = equalize_dis_no_overlap(catIds, imgIds, coco_dataset)
     
     # convert the coco image ids to numpy array
     ids = np.array(coco_dataset.ids)
