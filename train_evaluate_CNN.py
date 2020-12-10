@@ -412,7 +412,7 @@ def run_main(FLAGS):
     writer.close()
     
     with open(filename, 'w') as f:
-        f.write('Train Loss,Train Accuracy,Test Loss, Test Accuracy')
+        f.write('Train Loss,Train Accuracy,Test Loss, Test Accuracy\n')
         for epoch in range(FLAGS.num_epochs):
             # Write epoch metrics to disk
             f.write('{},{},{},{}\n'.format(train_losses[epoch],
