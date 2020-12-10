@@ -184,7 +184,7 @@ def test(model, device, test_loader, criterion, num_cats):
 def list_flatten(lists):
     return [item for sublist in lists for item in sublist]
 
-def equalize_dis(catnms, idList, coco_dataset):
+def equalize_dis(catnms, idList, coco_dataset, num_samples=0):
     dis_list = []
     
     # Minimum
@@ -198,30 +198,99 @@ def equalize_dis(catnms, idList, coco_dataset):
             
     list_lengths = [len(x) for x in dis_list]
     plt.bar(range(len(catnms)), height=list_lengths)
-    plt.xlabel("Category Index")
+    plt.xlabel("Number of classes")
     plt.ylabel("Number of images")
     plt.show()
     
     new_list = []
-
+    
+    if num_samples > 0:
+        minSet = num_samples
+    
     for l in dis_list:
         new_list.append(l[slice(minSet)])
 #         print(len(l))
         
     list_lengths = [len(x) for x in new_list]
-    plt.bar(range(len(catnms)), height=list_lengths) 
-    plt.xlabel("Category Index")
+    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.xlabel("Number of classes")
     plt.ylabel("Number of images")
     plt.show()
         
     single_list = list(itertools.chain(*new_list))
+    
+    return single_list
+
+def equalize_dis_no_overlap(catnms, idList, coco_dataset,num_samples=0):
+    
+    '''
+    function that takes in coco image ids and returns
+    an id list containg balanced image classes with
+    no overlaping categories
+    '''
+    
+    dis_list = []
+    
+    # get list of imgIds that correspond to the given categories
+    for i in catnms:
+        temp = coco_dataset.coco.getImgIds(imgIds=idList, catIds=i)
+        dis_list.append(temp)
+    
+    # sort list of lists from least to greatest
+    dis_list.sort(key=len)
+
+    # Displaying the class distribution before
+    list_lengths = [len(x) for x in dis_list]
+    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.xlabel("Number of classes")
+    plt.ylabel("Number of images")
+    plt.show()
+    
+    # a list for values to remove and a list for the new values
+    remove_list = []
+    new_list = []
+    
+    # The minimum length it will be reduced to
+    if num_samples > 0:
+        min_length = num_samples
+    else:
+        min_length = len(dis_list[0])
+    
+    # Getting rid of overlaping categories in the
+    # category list
+    for li in dis_list:
+        
+        r_list = removeList(li, remove_list)
+        
+        new_list.append(r_list)
+        remove_list.extend(r_list)
+        
+        if len(r_list) < min_length:
+            min_length = len(r_list)
+            
+    final_list = []
+
+    # turning the category lists into a single list
+    for l in new_list:
+        final_list.append(l[slice(min_length)])
+        
+    # Displaying the balanced class distribution
+    list_lengths = [len(x) for x in final_list]
+    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.xlabel("Number of classes")
+    plt.ylabel("Number of images")
+    plt.show()
+     
+    # combining all the elements into a single list 
+    single_list = list(itertools.chain(*final_list))
+    
     
     return single_list 
 
 def removeList(l1, l2):
     return [i for i in l1 if i not in l2]
 
-def coco_subset(coco_dataset, catIds, balance_dataset=False):
+def coco_subset(coco_dataset, catIds, balance_dataset=False, num_samples=0):
     # get the corresponding image ids containing the categories 
     imgIds = []
     for L in range(0, len(catIds)+1):
@@ -233,7 +302,10 @@ def coco_subset(coco_dataset, catIds, balance_dataset=False):
     
     # Truncate dataset to ensure a uniform category distribution 
     if balance_dataset: 
-        imgIds = equalize_dis(catIds, imgIds, coco_dataset)
+        # balance dataset where images are allowed to have overlapping labels
+        imgIds = equalize_dis(catIds, imgIds, coco_dataset, num_samples)
+        # balance dataset where images are NOT allowed to have overlapping labels
+#         imgIds = equalize_dis_no_overlap(catIds, imgIds, coco_dataset, num_samples)
     
     # convert the coco image ids to numpy array
     ids = np.array(coco_dataset.ids)
@@ -320,8 +392,9 @@ def run_main(FLAGS):
     train_catIds = train_dataset.coco.getCatIds(catNms=catNms)
     test_catIds = test_dataset.coco.getCatIds(catNms=catNms)
     
-    # Create subsets of coco dataset using selected categories      
-    train_subset = coco_subset(train_dataset, train_catIds, FLAGS.balance_dataset)
+    # Create subsets of coco dataset using selected categories 
+    # Balance training dataset, leave test dataset unbalanced
+    train_subset = coco_subset(train_dataset, train_catIds, FLAGS.balance_dataset, FLAGS.num_train_samples)
     test_subset = coco_subset(test_dataset, test_catIds)
     
     # Prepare data loaders for these subsets
@@ -374,7 +447,7 @@ def run_main(FLAGS):
     test_mAPs = np.zeros(FLAGS.num_epochs)
     
     # Define name of this model for logging
-    name = 'model{}_lr{}_epochs{}_batch{}_numCats{}_{}_{}{}'.format(
+    name = 'model{}_lr{}_epochs{}_batch{}_numCats{}_{}_{}_num-samples_{}{}'.format(
         FLAGS.mode,
         FLAGS.learning_rate,
         FLAGS.num_epochs,
@@ -382,6 +455,7 @@ def run_main(FLAGS):
         FLAGS.num_cats,
         "-".join(catNms),
         "balanced" if FLAGS.balance_dataset else "unbalanced",
+        FLAGS.num_train_samples,
         FLAGS.name)
     
     # Define the tensorboard writer to track netowrk training
@@ -472,7 +546,15 @@ if __name__ == '__main__':
     parser.add_argument('--balance_dataset',
                         type=bool,
                         default=False,
-                        help='Balance training dataset.')
+                        help='Enable subset class balancing')
+    parser.add_argument('--num_train_samples',
+                        type=int,
+                        default=0,
+                        help='Number of samples used to train the model.')
+    parser.add_argument('--num_test_samples',
+                        type=int,
+                        default=0,
+                        help='Number of samples used to test the model.')
     parser.add_argument('--num_cats',
                         type=int,
                         default=3,
@@ -482,3 +564,4 @@ if __name__ == '__main__':
     FLAGS, unparsed = parser.parse_known_args()
     
     run_main(FLAGS)
+    
