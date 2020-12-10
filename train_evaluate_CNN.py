@@ -13,7 +13,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import itertools
 import time
-from sklearn import metrics
 
 def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, num_cats):
     '''
@@ -33,8 +32,11 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, 
     # Empty list to store losses 
     losses = []
     correct = 0
-    accuracy = 0
-    percision = 0
+    n_pred_positivies = torch.zeros(num_cats).to(device)
+    n_target_positivies = torch.zeros(num_cats).to(device)
+    n_true_positives = torch.zeros(num_cats).to(device)
+    batch_true_positives = []
+    batch_false_positives = []
     
     # Iterate over entire training samples (1 epoch)
     for batch_idx, batch_sample in enumerate(train_loader):
@@ -48,8 +50,6 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, 
         
         # Do forward pass for current set of data
         output = model(data)
-        
-#         if model.debug: print('target: {}'.format(target.size()))
         
         # Compute loss based on criterion
         loss = criterion(output, target)
@@ -68,19 +68,46 @@ def train(model, device, train_loader, optimizer, criterion, epoch, batch_size, 
         # Count correct predictions overall 
         # Get element-wise equality between the preds and the targets for this batch,
         # finally sum the equalities and convert to a python float
-        num_equal = pred.eq(target).sum().item()
-        correct += num_equal
-        batch_accuracy = num_equal / torch.numel(target)
-        accuracy += batch_accuracy
-        
-#         print(metrics.classification_report(target.cpu(), pred.cpu()))
-        
-        if not model.debug: progbar(batch_idx, len(train_loader), 10, batch_accuracy)
+        n_equal = pred.eq(target).sum().item()
+        correct += n_equal
             
+#         true_positives = target * pred
+#         false_positives = ((pred - target) > 0).float()
+#         batch_true_positives.append(true_positives)
+#         batch_false_positives.append(false_positives)
+        
+#         n_true_positives += torch.sum(true_positives, dim=0)
+#         n_pred_positivies += torch.sum(pred, dim=0)
+#         n_target_positivies += torch.sum(target, dim=0)
+        
+#         true_positives_cumsum = torch.cumsum(true_positives, dim=0)
+#         false_positives_cumsum = torch.cumsum(false_positives, dim=0)
+#         batch_precisions = torch.true_divide(true_positives_cumsum, true_positives_cumsum + false_positives_cumsum)
+#         batch_recalls = torch.true_divide(true_positives_cumsum, n_target_positivies)
+#         batch_APs = torch.trapz(batch_precisions, batch_recalls)
+#         batch_mAP = torch.sum(batch_APs).item() / len(batch_APs)
+
+        if not model.debug: 
+            batch_accuracy = n_equal / torch.numel(target)
+            progbar(batch_idx, len(train_loader), 10, batch_accuracy)
+    
+#     TP = torch.stack(batch_true_positives[:-1])
+#     FP = torch.stack(batch_false_positives[:-1])
+#     TP_cumsum = torch.cumsum(TP, dim=0)
+#     FP_cumsum = torch.cumsum(FP, dim=0)
+#     precisions = torch.true_divide(TP_cumsum, TP_cumsum + FP_cumsum)
+#     recalls = torch.true_divide(TP_cumsum, n_target_positivies)
+#     APs = torch.trapz(precisions, recalls)
+#     mAP = torch.sum(APs).item() / len(APs)
+    
+#     precision = torch.true_divide(true_positives, pred_positivies)
+#     recall = torch.true_divide(true_positives, target_positivies)
+    
     train_loss = float(np.mean(losses))
     train_acc = 100. * correct / ((batch_idx+1) * batch_size * num_cats)
-    print('\nTrain set\t Average loss: {:.4f}\t Accuracy: {}/{} ({:.0f}%)'.format(
-        float(np.mean(losses)), correct, (batch_idx+1) * batch_size * num_cats, train_acc))
+    
+    print('\nTrain set\t Average loss: {:.4f}\t Average Accuracy: {}/{} ({:.0f}%)'.format(
+        train_loss, correct, (batch_idx+1) * batch_size * num_cats, train_acc))
           
     return train_loss, train_acc
 
@@ -97,7 +124,11 @@ def test(model, device, test_loader, criterion, num_cats):
     
     losses = []
     correct = 0
-    accuracy = 0
+    n_pred_positivies = torch.zeros(num_cats).to(device)
+    n_target_positivies = torch.zeros(num_cats).to(device)
+    n_true_positives = torch.zeros(num_cats).to(device)
+    batch_true_positives = []
+    batch_false_positives = []
     
     # Set torch.no_grad() to disable gradient computation and backpropagation
     with torch.no_grad():
@@ -107,8 +138,6 @@ def test(model, device, test_loader, criterion, num_cats):
                 
             # Predict for data by doing forward pass
             output = model(data)
-            
-#             print('target: {}'.format(target.size()))
             
             # Compute loss based on same criterion as training
             loss = criterion(output, target)
@@ -121,9 +150,29 @@ def test(model, device, test_loader, criterion, num_cats):
             # Count correct predictions overall 
             # Get element-wise equality between the preds and the targets for this batch,
             # finally sum the equalities and convert to a std python float
-            num_equal = pred.eq(target).sum().item()
-            correct += num_equal
-            accuracy += num_equal / torch.numel(target)
+            n_equal = pred.eq(target).sum().item()
+            correct += n_equal
+            
+            true_positives = target * pred
+            batch_true_positives.append(true_positives)
+            false_positives = ((pred - target) > 0).float()        
+            batch_false_positives.append(false_positives)
+        
+            n_true_positives += torch.sum(true_positives, dim=0)
+            n_pred_positivies += torch.sum(pred, dim=0)
+            n_target_positivies += torch.sum(target, dim=0)
+
+    TP = torch.stack(batch_true_positives[:-1])
+    FP = torch.stack(batch_false_positives[:-1])
+    TP_cumsum = torch.cumsum(TP, dim=0)
+    FP_cumsum = torch.cumsum(FP, dim=0)
+    precisions = torch.true_divide(TP_cumsum, TP_cumsum + FP_cumsum)
+    recalls = torch.true_divide(TP_cumsum, n_target_positivies)
+    APs = torch.trapz(precisions, recalls)
+    mAP = torch.sum(APs).item() / len(APs)
+
+#     precision = torch.true_divide(true_positives, pred_positivies)
+#     recall = torch.true_divide(true_positives, target_positivies)
 
     test_loss = float(np.mean(losses))
     test_acc = (100. * correct) / (len(test_loader.dataset) * num_cats)
@@ -160,7 +209,7 @@ def equalize_dis(catnms, idList, coco_dataset):
 #         print(len(l))
         
     list_lengths = [len(x) for x in new_list]
-    plt.bar(range(len(catnms)), height=list_lengths)
+    plt.bar(range(len(catnms)), height=list_lengths) 
     plt.xlabel("Category Index")
     plt.ylabel("Number of images")
     plt.show()
@@ -171,53 +220,6 @@ def equalize_dis(catnms, idList, coco_dataset):
 
 def removeList(l1, l2):
     return [i for i in l1 if i not in l2]
-
-def equalize_dis_no_overlap(catnms, idList, coco_dataset):
-    dis_list = []
-    
-    # get list of imgIds that correspond to the given categories
-    for i in catnms:
-        temp = coco_dataset.coco.getImgIds(imgIds=idList, catIds=i)
-        dis_list.append(temp)
-    
-    # sort list of lists from least to greatest
-    dis_list.sort(key=len)
-    
-    list_lengths = [len(x) for x in dis_list]
-#     print("1st length of list")
-#     print(list_lengths)
-    
-    # a list for values to remove and a list for the new values
-    remove_list = []
-    new_list = []
-    
-    min_length = len(dis_list[0])
-#     print(min_length)
-    
-    for li in dis_list:
-        r_list = [i for i in remove_list if i not in dis_list[li]]
-        new_list.append(r_list)
-        remove_list.extend(r_list)
-        
-        if len(r_list) < min_length:
-            min_length = len(r_list)
-            
-    list_lengths = [len(x) for x in new_list]
-#     print("2nd length of list")
-#     print(list_lengths)
-    
-    final_list = []
-
-    for l in final_list:
-        final_list.append(l[slice(min_length)])
-        
-    list_lengths = [len(x) for x in final_list]
-#     print("3rd length of list")
-#     print(list_lengths)
-        
-    single_list = list(itertools.chain(*final_list))
-    
-    return single_list 
 
 def coco_subset(coco_dataset, catIds, balance_dataset=False):
     # get the corresponding image ids containing the categories 
@@ -260,7 +262,7 @@ def progbar(curr, total, full_progbar, accuracy):
     print('\r', 
           '#'*filled_progbar + '-'*(full_progbar-filled_progbar), 
           '[{:>7.2%}]'.format(frac), 
-          'Accuracy: [{:>7.2%}]'.format(accuracy), 
+          'Accuracy: [{:>7.2%}]'.format(accuracy),
           end='')
 
 def run_main(FLAGS):
@@ -301,16 +303,17 @@ def run_main(FLAGS):
                                       transform=transform)
 
     # define categories of interest
-    catNm_test=[['bench'],
+    catNm_tests=[['bench'],
                 ['bench','handbag'],
                 ['bench','handbag','book'],
                 ['bench','handbag','book','car'],
                 ['bench','handbag','book','car','bicycle'],
                 ['bench','handbag','book','car','bicycle','motorcycle'],
-                ['bench','handbag','book','car','dog','skateboard','cup']]
+                ['bench','handbag','book','car','dog','skateboard','cup'],
+                ['bench','handbag','book','car','dog','skateboard','cup', 'chair']]
     
     # select categoires to test with
-    catNms=catNm_test[FLAGS.num_cats-1]
+    catNms=catNm_tests[FLAGS.num_cats-1]
     
     # get the category ids of interest
     catIds = train_dataset.coco.getCatIds(catNms=catNms)
@@ -362,6 +365,14 @@ def run_main(FLAGS):
     test_losses = np.zeros(FLAGS.num_epochs)
     test_accuracies = np.zeros(FLAGS.num_epochs)
     
+    train_precisions = np.zeros(FLAGS.num_epochs)
+    train_recalls = np.zeros(FLAGS.num_epochs)
+    test_precisions = np.zeros(FLAGS.num_epochs)
+    test_recalls = np.zeros(FLAGS.num_epochs)
+    
+    train_mAPs = np.zeros(FLAGS.num_epochs)
+    test_mAPs = np.zeros(FLAGS.num_epochs)
+    
     # Define name of this model for logging
     name = 'model{}_lr{}_epochs{}_batch{}_numCats{}_{}_{}{}'.format(
         FLAGS.mode,
@@ -375,10 +386,12 @@ def run_main(FLAGS):
     
     # Define the tensorboard writer to track netowrk training
     writer = SummaryWriter('./runs/COCO2017/{}'.format(name))
+    # Create output directory if needed
+    if not os.path.exists('output'): os.mkdir("output") 
     # Define the output filename for the training and evaluation traces
     filename = "./output/COCO2017_{}.dat".format(name)    
-    num_cats = len(catNms)
     
+    num_cats = len(catNms)
     # Run training for n_epochs specified in config 
     for epoch in range(1, FLAGS.num_epochs + 1):
         print("Epoch {}".format(epoch))
@@ -396,7 +409,9 @@ def run_main(FLAGS):
         train_losses[i] = train_loss
         train_accuracies[i] = train_accuracy
         test_losses[i] = test_loss
-        test_accuracies[i] = test_accuracy 
+        test_accuracies[i] = test_accuracy
+#         train_mAPs[i] = train_mAP 
+#         test_mAPs[i] = test_mAP
             
         if test_accuracy > best_accuracy:
             best_accuracy = test_accuracy
@@ -405,7 +420,9 @@ def run_main(FLAGS):
         writer.add_scalar('Loss/train', train_loss, epoch)
         writer.add_scalar('Accuracy/train', train_accuracy, epoch)
         writer.add_scalar('Loss/test', test_loss, epoch)
-        writer.add_scalar('Accuracy/test', test_accuracy, epoch)  
+        writer.add_scalar('Accuracy/test', test_accuracy, epoch) 
+#         writer.add_scalar('mAP/train', train_mAP, epoch)
+#         writer.add_scalar('mAP/train', test_mAP, epoch)
         
     # Flush all writer logs and close resource
     writer.flush()
@@ -458,8 +475,8 @@ if __name__ == '__main__':
                         help='Balance training dataset.')
     parser.add_argument('--num_cats',
                         type=int,
-                        default=5,
-                        help='Number of categories used to evaluate the model. 1-7')
+                        default=3,
+                        help='Number of categories used to evaluate the model. 1-8')
     
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()
